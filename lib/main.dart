@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:quran_app/widget_bridge.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await syncHardcodedVerseToWidget();
   runApp(const MyApp());
 }
 
