@@ -1,0 +1,23 @@
+name: iOS Sanity Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sanity-check:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show macOS and Xcode version
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.8'
+          channel: 'stable'
+
+      - name: Flutter doctor
+        run: flutter doctor -v
