@@ -21,3 +21,26 @@ jobs:
 
       - name: Flutter doctor
         run: flutter doctor -v
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Install xcodeproj gem
+        run: gem install xcodeproj --no-document
+
+      - name: Add VerseWidget extension target to Xcode project
+        run: ruby ios/add_widget_extension.rb
+
+      - name: Build VerseWidget target
+        run: |
+          xcodebuild \
+            -project ios/Runner.xcodeproj \
+            -target VerseWidget \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Build full iOS app (Runner, with VerseWidget embedded)
+        run: flutter build ios --no-codesign --simulator
