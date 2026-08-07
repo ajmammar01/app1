@@ -73,3 +73,41 @@ jobs:
 
       - name: Build full iOS app (Runner, with VerseWidget embedded)
         run: flutter build ios --no-codesign --simulator
+
+      - name: Pick an iOS Simulator to run tests on
+        id: simulator
+        run: |
+          set -e
+          UDID=$(xcrun simctl list devices available | grep -m1 "iPhone" | grep -oE '[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}')
+          if [ -z "$UDID" ]; then
+            echo "::error::No available iPhone Simulator found on this runner"
+            exit 1
+          fi
+          echo "Using simulator $UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Run VerseWidget snapshot test
+        run: |
+          xcodebuild test \
+            -project ios/Runner.xcodeproj \
+            -scheme Runner \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -only-testing:RunnerTests/VerseWidgetSnapshotTests \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Collect widget screenshot
+        run: |
+          set -e
+          if [ ! -f /tmp/verse_widget_snapshot.png ]; then
+            echo "::error::Expected screenshot at /tmp/verse_widget_snapshot.png but the test did not produce it"
+            exit 1
+          fi
+          mkdir -p artifacts
+          cp /tmp/verse_widget_snapshot.png artifacts/verse_widget_snapshot.png
+
+      - name: Upload widget screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: verse-widget-screenshot
+          path: artifacts/verse_widget_snapshot.png
+          if-no-files-found: error

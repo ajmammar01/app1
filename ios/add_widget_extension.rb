@@ -41,10 +41,19 @@ widget_entitlements_path = File.join(widget_dir, "#{TARGET_NAME}.entitlements")
   end
 end
 
+entry_view_file_name = "#{TARGET_NAME}EntryView.swift"
+snapshot_test_file_name = "#{TARGET_NAME}SnapshotTests.swift"
+entry_view_path = File.join(widget_dir, entry_view_file_name)
+snapshot_test_path = File.join(IOS_DIR, 'RunnerTests', snapshot_test_file_name)
+[entry_view_path, snapshot_test_path].each do |path|
+  raise "Expected file at #{path}, but it is missing" unless File.exist?(path)
+end
+
 widget_group = project.main_group.new_group(TARGET_NAME, TARGET_NAME)
 
-swift_file_names = ['AppIntent.swift', "#{TARGET_NAME}.swift", "#{TARGET_NAME}Bundle.swift"]
+swift_file_names = ['AppIntent.swift', "#{TARGET_NAME}.swift", "#{TARGET_NAME}Bundle.swift", entry_view_file_name]
 swift_refs = swift_file_names.map { |name| widget_group.new_file(name) }
+entry_view_ref = swift_refs.find { |ref| ref.path == entry_view_file_name }
 info_plist_ref = widget_group.new_file('Info.plist')
 assets_ref = widget_group.new_file('Assets.xcassets')
 widget_group.new_file("#{TARGET_NAME}.entitlements")
@@ -98,6 +107,19 @@ runner_target.build_configurations.each do |config|
 end
 runner_group = project.main_group['Runner']
 runner_group.new_file('Runner.entitlements') if runner_group
+
+# RunnerTests is a unit-test bundle hosted inside Runner.app (see TEST_HOST in
+# its build settings), so it runs with Runner's App Group entitlement at
+# runtime — no separate entitlement needed. Compile the widget's view code
+# into it too (same file, added to a second target) so its snapshot test
+# exercises the exact view VerseWidget renders, not a reimplementation.
+runner_tests_target = project.targets.find { |t| t.name == 'RunnerTests' }
+runner_tests_group = project.main_group['RunnerTests']
+if runner_tests_target && runner_tests_group
+  runner_tests_target.source_build_phase.add_file_reference(entry_view_ref)
+  snapshot_test_ref = runner_tests_group.new_file(snapshot_test_file_name)
+  runner_tests_target.source_build_phase.add_file_reference(snapshot_test_ref)
+end
 
 copy_phase = runner_target.new_copy_files_build_phase('Embed Foundation Extensions')
 copy_phase.symbol_dst_subfolder_spec = :plug_ins
