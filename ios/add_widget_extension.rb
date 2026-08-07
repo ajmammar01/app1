@@ -81,6 +81,20 @@ copy_phase.symbol_dst_subfolder_spec = :plug_ins
 embed_build_file = copy_phase.add_file_reference(widget_target.product_reference)
 embed_build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
 
+# new_copy_files_build_phase appends to the end of build_phases, landing this
+# copy phase after "Thin Binary". Xcode's new build system always makes
+# ProcessInfoPlistFile depend on any embedded extension's Info.plist, and
+# that step runs as part of "Thin Binary". If "Thin Binary" is scheduled
+# before this copy phase, Xcode reports "Cycle inside Runner": the copy
+# waits on Thin Binary finishing, while Thin Binary (via ProcessInfoPlistFile)
+# waits on the copy's output. Moving the copy phase to just before
+# "Thin Binary" removes the first edge and breaks the cycle.
+thin_binary_index = runner_target.build_phases.index { |phase| phase.respond_to?(:name) && phase.name == 'Thin Binary' }
+if thin_binary_index
+  runner_target.build_phases.delete(copy_phase)
+  runner_target.build_phases.insert(thin_binary_index, copy_phase)
+end
+
 runner_target.add_dependency(widget_target)
 
 project.save
