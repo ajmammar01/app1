@@ -12,6 +12,7 @@ import XCTest
 final class VerseWidgetSnapshotTests: XCTestCase {
     private let appGroupId = "group.com.example.quranApp"
 
+    @MainActor
     func testWidgetRendersVerseFromAppGroup() throws {
         guard #available(iOS 16.0, *) else {
             throw XCTSkip("ImageRenderer requires iOS 16+")
