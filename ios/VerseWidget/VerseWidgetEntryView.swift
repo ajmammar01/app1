@@ -47,7 +47,7 @@ struct VerseWidgetEntryView: View {
 
             Text(verse.transliteration)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
         }
         .padding()
