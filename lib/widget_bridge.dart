@@ -2,10 +2,18 @@ import 'package:drift/native.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:quran_app/database/database.dart';
 
+/// App Group shared between the Runner app and the VerseWidget extension,
+/// matching the group id declared in ios/Runner/Runner.entitlements and
+/// ios/VerseWidget/VerseWidget.entitlements. Required on iOS before any
+/// saveWidgetData/getWidgetData call; ignored on Android.
+const _iosAppGroupId = 'group.com.example.quranApp';
+
 /// Pushes the hardcoded verse from the drift database to native widget
 /// storage via home_widget, then immediately reads it back and prints the
 /// result so the round trip can be confirmed from the console.
 Future<void> syncHardcodedVerseToWidget() async {
+  await HomeWidget.setAppGroupId(_iosAppGroupId);
+
   final db = AppDatabase(NativeDatabase.memory());
 
   await db.into(db.verses).insert(

@@ -31,6 +31,35 @@ jobs:
       - name: Add VerseWidget extension target to Xcode project
         run: ruby ios/add_widget_extension.rb
 
+      - name: Verify App Group entitlement is wired on both targets
+        run: |
+          set -e
+          APP_GROUP="group.com.example.quranApp"
+
+          for target in Runner VerseWidget; do
+            echo "Checking $target build settings..."
+            settings=$(xcodebuild -project ios/Runner.xcodeproj -target "$target" -configuration Debug -sdk iphonesimulator -showBuildSettings)
+            entitlements_path=$(echo "$settings" | grep -m1 'CODE_SIGN_ENTITLEMENTS =' | sed 's/.*= //')
+
+            if [ -z "$entitlements_path" ]; then
+              echo "::error::$target has no CODE_SIGN_ENTITLEMENTS set"
+              exit 1
+            fi
+
+            full_path="ios/$entitlements_path"
+            if [ ! -f "$full_path" ]; then
+              echo "::error::$target's entitlements file '$full_path' does not exist"
+              exit 1
+            fi
+
+            if ! grep -q "$APP_GROUP" "$full_path"; then
+              echo "::error::$full_path does not declare '$APP_GROUP'"
+              exit 1
+            fi
+
+            echo "$target OK: $full_path declares $APP_GROUP"
+          done
+
       - name: Build VerseWidget target
         run: |
           xcodebuild \

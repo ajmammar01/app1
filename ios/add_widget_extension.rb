@@ -27,9 +27,19 @@ raise "Could not find the 'Runner' target in #{PROJECT_PATH}" unless runner_targ
 release_config = runner_target.build_configurations.find { |c| c.name == 'Release' }
 host_bundle_id = release_config.build_settings['PRODUCT_BUNDLE_IDENTIFIER']
 widget_bundle_id = "#{host_bundle_id}.#{TARGET_NAME}"
+app_group_id = "group.#{host_bundle_id}"
 
 widget_dir = File.join(IOS_DIR, TARGET_NAME)
 raise "Expected widget source files at #{widget_dir}, but that directory is missing" unless Dir.exist?(widget_dir)
+
+runner_entitlements_path = File.join(IOS_DIR, 'Runner', 'Runner.entitlements')
+widget_entitlements_path = File.join(widget_dir, "#{TARGET_NAME}.entitlements")
+[runner_entitlements_path, widget_entitlements_path].each do |path|
+  raise "Expected entitlements file at #{path}, but it is missing" unless File.exist?(path)
+  unless File.read(path).include?(app_group_id)
+    raise "#{path} does not declare the expected App Group '#{app_group_id}'"
+  end
+end
 
 widget_group = project.main_group.new_group(TARGET_NAME, TARGET_NAME)
 
@@ -37,6 +47,7 @@ swift_file_names = ['AppIntent.swift', "#{TARGET_NAME}.swift", "#{TARGET_NAME}Bu
 swift_refs = swift_file_names.map { |name| widget_group.new_file(name) }
 info_plist_ref = widget_group.new_file('Info.plist')
 assets_ref = widget_group.new_file('Assets.xcassets')
+widget_group.new_file("#{TARGET_NAME}.entitlements")
 
 widget_target = project.new_target(:app_extension, TARGET_NAME, :ios, '17.0', widget_group, :swift)
 
@@ -51,6 +62,7 @@ end
 
 widget_target.build_configurations.each do |config|
   settings = config.build_settings
+  settings['CODE_SIGN_ENTITLEMENTS'] = "#{TARGET_NAME}/#{TARGET_NAME}.entitlements"
   settings['CODE_SIGN_STYLE'] = 'Automatic'
   settings['CURRENT_PROJECT_VERSION'] = '1'
   settings['GENERATE_INFOPLIST_FILE'] = 'YES'
@@ -75,6 +87,17 @@ if debug_config
   debug_config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
   debug_config.build_settings['SWIFT_ACTIVE_COMPILATION_CONDITIONS'] = 'DEBUG'
 end
+
+# Give Runner the same App Group entitlement so the host app and the widget
+# extension can share data (via UserDefaults(suiteName:)). This only points
+# Runner at the entitlements file that already sits at ios/Runner/ — it
+# doesn't create the App Group in an Apple Developer account, which is a
+# one-time manual step done outside this script.
+runner_target.build_configurations.each do |config|
+  config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'Runner/Runner.entitlements'
+end
+runner_group = project.main_group['Runner']
+runner_group.new_file('Runner.entitlements') if runner_group
 
 copy_phase = runner_target.new_copy_files_build_phase('Embed Foundation Extensions')
 copy_phase.symbol_dst_subfolder_spec = :plug_ins
