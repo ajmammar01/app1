@@ -60,16 +60,27 @@ jobs:
             echo "$target OK: $full_path declares $APP_GROUP"
           done
 
-      # Signing settings below are shared by every xcodebuild/flutter build
-      # step in this workflow. CODE_SIGNING_ALLOWED must stay YES: it's what
-      # runs Xcode's CodeSign phase, and that phase is what embeds
-      # CODE_SIGN_ENTITLEMENTS (the App Group) into the binary. Ad-hoc identity
-      # "-" needs no certificate, no provisioning profile and no Developer
-      # Program membership, and the Simulator honours an ad-hoc entitlements
-      # blob directly, so this works on a bare runner with a free Apple ID.
-      # CODE_SIGN_STYLE=Manual keeps xcodebuild from trying to resolve a team
-      # or fetch profiles from Apple, and CODE_SIGNING_REQUIRED=NO keeps
+      # Signing settings below are shared by every xcodebuild/flutter build step
+      # in this workflow.
+      #
+      # CODE_SIGNING_ALLOWED must stay YES: it's what runs Xcode's CodeSign
+      # phase, and that phase is what embeds CODE_SIGN_ENTITLEMENTS (the App
+      # Group) into the binary. Ad-hoc identity "-" needs no certificate, no
+      # provisioning profile and no Developer Program membership, and the
+      # Simulator honours an ad-hoc entitlements blob directly, so this works on
+      # a bare runner with a free Apple ID. CODE_SIGNING_REQUIRED=NO keeps
       # unsignable dependencies from failing the build.
+      #
+      # Do NOT add CODE_SIGN_STYLE=Manual here. Under Manual signing,
+      # ProcessProductPackaging authorizes the generated .xcent against a
+      # provisioning profile; with no profile (free Apple ID) nothing authorizes
+      # com.apple.security.application-groups, so the .xcent comes out empty and
+      # the binary signs with an empty entitlements dict. Automatic signing on
+      # -sdk iphonesimulator skips profile authorization entirely and writes
+      # CODE_SIGN_ENTITLEMENTS through verbatim. Every target already resolves to
+      # Automatic (Runner leaves it unset; add_widget_extension.rb sets it
+      # explicitly for VerseWidget), and a command-line value would override all
+      # of them at once, so it is deliberately left unspecified.
       - name: Build VerseWidget target
         run: |
           xcodebuild \
@@ -81,7 +92,6 @@ jobs:
             CODE_SIGNING_ALLOWED=YES \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=- \
-            CODE_SIGN_STYLE=Manual \
             build
 
       # `--no-codesign` is deliberately NOT used here: it makes the flutter
@@ -96,8 +106,27 @@ jobs:
           FLUTTER_XCODE_CODE_SIGNING_ALLOWED: 'YES'
           FLUTTER_XCODE_CODE_SIGNING_REQUIRED: 'NO'
           FLUTTER_XCODE_CODE_SIGN_IDENTITY: '-'
-          FLUTTER_XCODE_CODE_SIGN_STYLE: 'Manual'
         run: flutter build ios --simulator
+
+      # Diagnostic only - never fails the build. Xcode's ProcessProductPackaging
+      # step turns CODE_SIGN_ENTITLEMENTS into a .xcent plist and hands it to
+      # codesign via --entitlements. Dumping it splits the two possible failure
+      # modes apart: if these .xcent files contain the App Group but the
+      # signature check below still doesn't, the fault is in codesign/embedding;
+      # if the .xcent files are empty or absent, entitlements never got as far as
+      # ProcessProductPackaging in the first place.
+      - name: DEBUG - dump generated .xcent entitlements files
+        run: |
+          xcents=$(find build "$HOME/Library/Developer/Xcode/DerivedData" -name "*.xcent" 2>/dev/null || true)
+          if [ -z "$xcents" ]; then
+            echo "No .xcent files found - ProcessProductPackaging generated none, so no target had CODE_SIGN_ENTITLEMENTS applied while signing."
+          else
+            echo "$xcents" | while IFS= read -r xcent; do
+              echo "::group::$xcent"
+              plutil -p "$xcent" 2>&1 || cat "$xcent" 2>&1
+              echo "::endgroup::"
+            done
+          fi
 
       - name: Verify the App Group entitlement is embedded in the built binaries
         run: |
@@ -126,8 +155,7 @@ jobs:
             -only-testing:RunnerTests/VerseWidgetSnapshotTests \
             CODE_SIGNING_ALLOWED=YES \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=- \
-            CODE_SIGN_STYLE=Manual
+            CODE_SIGN_IDENTITY=-
 
       - name: Collect widget screenshot
         run: |
