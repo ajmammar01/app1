@@ -60,27 +60,21 @@ jobs:
             echo "$target OK: $full_path declares $APP_GROUP"
           done
 
-      # Signing settings below are shared by every xcodebuild/flutter build step
-      # in this workflow.
+      # Both build steps below deliberately build UNSIGNED
+      # (CODE_SIGNING_ALLOWED=NO). Xcode's own signing pipeline is bypassed
+      # entirely; the "Re-sign ... with our own entitlements" step further down
+      # signs both products explicitly instead. See that step for the full
+      # reasoning — in short, Xcode's automatic signing cannot resolve the App
+      # Group capability without an authenticated Apple Developer account and
+      # silently signs with an EMPTY entitlements set instead of failing.
       #
-      # CODE_SIGNING_ALLOWED must stay YES: it's what runs Xcode's CodeSign
-      # phase, and that phase is what embeds CODE_SIGN_ENTITLEMENTS (the App
-      # Group) into the binary. Ad-hoc identity "-" needs no certificate, no
-      # provisioning profile and no Developer Program membership, and the
-      # Simulator honours an ad-hoc entitlements blob directly, so this works on
-      # a bare runner with a free Apple ID. CODE_SIGNING_REQUIRED=NO keeps
-      # unsignable dependencies from failing the build.
-      #
-      # Do NOT add CODE_SIGN_STYLE=Manual here. Under Manual signing,
-      # ProcessProductPackaging authorizes the generated .xcent against a
-      # provisioning profile; with no profile (free Apple ID) nothing authorizes
-      # com.apple.security.application-groups, so the .xcent comes out empty and
-      # the binary signs with an empty entitlements dict. Automatic signing on
-      # -sdk iphonesimulator skips profile authorization entirely and writes
-      # CODE_SIGN_ENTITLEMENTS through verbatim. Every target already resolves to
-      # Automatic (Runner leaves it unset; add_widget_extension.rb sets it
-      # explicitly for VerseWidget), and a command-line value would override all
-      # of them at once, so it is deliberately left unspecified.
+      # This is NOT the same as the earlier "--no-codesign left everything
+      # unsigned" bug. That bug was that nothing signed the products afterward,
+      # so they stayed permanently unsigned with no entitlements. Here the
+      # unsigned build is only an intermediate state: the explicit codesign
+      # step below runs before anything inspects, installs or runs these
+      # bundles, so the end state is a full, correct ad-hoc signature carrying
+      # the real App Group entitlement.
       - name: Build VerseWidget target
         run: |
           xcodebuild \
@@ -89,44 +83,109 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=YES \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_ALLOWED=NO \
             build
 
-      # `--no-codesign` is deliberately NOT used here: it makes the flutter
-      # tool append CODE_SIGNING_ALLOWED=NO / CODE_SIGNING_REQUIRED=NO /
-      # CODE_SIGNING_IDENTITY="" to the xcodebuild invocation, which is exactly
-      # what was stripping the App Group entitlement. The tool only performs
-      # development-team lookup for physical-device builds, so a --simulator
-      # build with signing enabled needs no Apple account. The FLUTTER_XCODE_*
-      # env vars are passed straight through to xcodebuild as build settings.
+      # `--no-codesign` makes the flutter tool append
+      # CODE_SIGNING_ALLOWED=NO / CODE_SIGNING_REQUIRED=NO /
+      # CODE_SIGNING_IDENTITY="" to its xcodebuild invocation
+      # (flutter_tools/lib/src/ios/mac.dart), which is exactly the unsigned
+      # intermediate state we want here. It also stops the tool adding
+      # -allowProvisioningUpdates, so no Apple-account lookup is attempted at
+      # any point.
       - name: Build full iOS app (Runner, with VerseWidget embedded)
-        env:
-          FLUTTER_XCODE_CODE_SIGNING_ALLOWED: 'YES'
-          FLUTTER_XCODE_CODE_SIGNING_REQUIRED: 'NO'
-          FLUTTER_XCODE_CODE_SIGN_IDENTITY: '-'
-        run: flutter build ios --simulator
+        run: flutter build ios --no-codesign --simulator
 
-      # Diagnostic only - never fails the build. Xcode's ProcessProductPackaging
-      # step turns CODE_SIGN_ENTITLEMENTS into a .xcent plist and hands it to
-      # codesign via --entitlements. Dumping it splits the two possible failure
-      # modes apart: if these .xcent files contain the App Group but the
-      # signature check below still doesn't, the fault is in codesign/embedding;
-      # if the .xcent files are empty or absent, entitlements never got as far as
-      # ProcessProductPackaging in the first place.
-      - name: DEBUG - dump generated .xcent entitlements files
+      # Guards the bypass itself. Xcode's ProcessProductPackaging step is what
+      # turns CODE_SIGN_ENTITLEMENTS into a .xcent plist for codesign, and it
+      # only runs when signing is enabled. With CODE_SIGNING_ALLOWED=NO on both
+      # builds above, it should not have run at all, so there should be no
+      # .xcent files anywhere.
+      #
+      # If any appear, a build step has quietly regained Xcode's automatic
+      # signing (a changed flag, or a future Flutter/Xcode version enabling it
+      # by default). That must fail loudly here, because the entitlement check
+      # further down would NOT catch it: the explicit re-signing step below
+      # overwrites whatever Xcode produced, so a correct final signature would
+      # mask the regression and we would be silently depending on the broken
+      # automatic pipeline again.
+      - name: Sanity check - Xcode generated no .xcent files
         run: |
           xcents=$(find build "$HOME/Library/Developer/Xcode/DerivedData" -name "*.xcent" 2>/dev/null || true)
           if [ -z "$xcents" ]; then
-            echo "No .xcent files found - ProcessProductPackaging generated none, so no target had CODE_SIGN_ENTITLEMENTS applied while signing."
+            echo "OK: no .xcent files - Xcode's signing pipeline was skipped as intended."
           else
             echo "$xcents" | while IFS= read -r xcent; do
               echo "::group::$xcent"
               plutil -p "$xcent" 2>&1 || cat "$xcent" 2>&1
               echo "::endgroup::"
             done
+            echo "::error::Found .xcent files (listed above), so Xcode's automatic signing ran despite CODE_SIGNING_ALLOWED=NO. Entitlements must come only from the explicit codesign step, not from Xcode."
+            exit 1
           fi
+
+      # Why we sign by hand instead of letting Xcode do it.
+      #
+      # The App Group entitlement (com.apple.security.application-groups) is a
+      # capability that Apple normally expects to be registered against an App
+      # ID in a Developer account. When Xcode signs with its automatic style, it
+      # tries to resolve that registration. On this runner there is no
+      # authenticated Apple Developer account and no provisioning profile, so it
+      # cannot - and instead of failing the build, it silently writes an EMPTY
+      # entitlements set into the .xcent it hands to codesign. The result is a
+      # perfectly valid signature carrying no entitlements, even though
+      # CODE_SIGN_ENTITLEMENTS points at our correct .entitlements files the
+      # whole time. That is why this was so hard to see: every static check
+      # passes and only the built binary is wrong.
+      #
+      # (Xcode does also emit a separate *-Simulated.xcent containing the right
+      # data, but that is an undocumented internal build artifact whose name and
+      # existence can change between Xcode versions, so we do not build on it.)
+      #
+      # Signing ourselves removes Apple from the loop completely. Ad-hoc signing
+      # ("--sign -") uses no certificate and no identity, and passing
+      # --entitlements takes the entitlements verbatim from the file we give it
+      # with no capability lookup, no App ID, no provisioning profile and no
+      # account of any kind. Our tracked .entitlements files therefore become
+      # the single source of truth for what ends up in the binary. This is the
+      # standard way to sign for the Simulator without a provisioning-capable
+      # Apple Developer account.
+      #
+      # Order matters: an app bundle's signature seals its nested code, so the
+      # embedded .appex must be signed BEFORE Runner.app. Signing Runner.app
+      # first would invalidate its own seal as soon as the extension changed.
+      #
+      # Paths are resolved the same way the rest of the workflow does it - the
+      # flutter simulator build output, and the .appex located under PlugIns/
+      # (matching .github/scripts/verify_entitlements.sh) - rather than a
+      # hardcoded DerivedData path, which differs per runner and per build.
+      - name: Re-sign VerseWidget.appex and Runner.app with our own entitlements
+        run: |
+          set -euo pipefail
+          APP_PATH="build/ios/iphonesimulator/Runner.app"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::Expected the built app at $APP_PATH but it does not exist"
+            exit 1
+          fi
+
+          APPEX_PATH=$(find "$APP_PATH/PlugIns" -maxdepth 1 -name "*.appex" 2>/dev/null | head -n1)
+          if [ -z "$APPEX_PATH" ]; then
+            echo "::error::No .appex found under $APP_PATH/PlugIns - the widget extension was not embedded, so there is nothing to sign"
+            exit 1
+          fi
+
+          echo "Signing extension: $APPEX_PATH"
+          codesign --force --sign - \
+            --entitlements ios/VerseWidget/VerseWidget.entitlements \
+            --timestamp=none \
+            "$APPEX_PATH"
+
+          echo "Signing app: $APP_PATH"
+          codesign --force --sign - \
+            --entitlements ios/Runner/Runner.entitlements \
+            --timestamp=none \
+            "$APP_PATH"
 
       - name: Verify the App Group entitlement is embedded in the built binaries
         run: |
@@ -146,6 +205,16 @@ jobs:
           echo "Using simulator $UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
+      # NOTE: this step still lets Xcode sign, unlike the two build steps above.
+      # It builds its own copy of Runner.app into DerivedData as the test host,
+      # separate from the bundle re-signed above, and that host's entitlements
+      # will be empty for the reason described above. The snapshot test writes
+      # and reads the App Group within a single process, so it does not depend
+      # on the shared container actually being shared, and passes either way.
+      # Left as-is deliberately rather than changed as a drive-by; if this host
+      # ever needs the real entitlement, it needs the same re-signing treatment,
+      # which is awkward here because `xcodebuild test` builds and runs in one
+      # invocation with no point in between to sign.
       - name: Run VerseWidget snapshot test
         run: |
           xcodebuild test \
