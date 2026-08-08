@@ -31,6 +31,10 @@ struct VerseWidget: Widget {
         AppIntentConfiguration(kind: kind, intent: ConfigurationAppIntent.self, provider: Provider()) { entry in
             VerseWidgetEntryView(verse: entry.verse)
                 .containerBackground(.fill.tertiary, for: .widget)
+                // "homeWidget" is the query param home_widget's iOS plugin
+                // checks for (isWidgetUrl in HomeWidgetPlugin.swift) to tell
+                // a widget tap apart from any other incoming URL.
+                .widgetURL(URL(string: "homeWidget://toggleRead?id=\(entry.verse.id)&homeWidget=true"))
         }
     }
 }

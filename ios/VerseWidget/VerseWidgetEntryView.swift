@@ -7,26 +7,33 @@ import SwiftUI
 /// compiled into RunnerTests, letting a plain XCTest render the exact same
 /// view the widget extension renders and capture it as a screenshot.
 struct VerseData {
+    let id: Int
     let arabicText: String
     let transliteration: String
+    let isRead: Bool
 
     static let placeholder = VerseData(
+        id: 1,
         arabicText: "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
-        transliteration: "Bismillahir Rahmanir Raheem"
+        transliteration: "Bismillahir Rahmanir Raheem",
+        isRead: false
     )
 
     /// Reads the keys home_widget's iOS plugin writes via
-    /// UserDefaults(suiteName: appGroupId).setValue(_, forKey: id) — "arabicText"
-    /// and "transliteration" — matching HomeWidget.saveWidgetData calls in
-    /// lib/widget_bridge.dart. Falls back to .placeholder if the App Group
-    /// hasn't been populated yet (e.g. before the app has run once).
+    /// UserDefaults(suiteName: appGroupId).setValue(_, forKey: id) — "id",
+    /// "arabicText", "transliteration", and "isRead" — matching
+    /// HomeWidget.saveWidgetData calls in lib/widget_bridge.dart. Falls back
+    /// to .placeholder if the App Group hasn't been populated yet (e.g.
+    /// before the app has run once).
     static func loadFromAppGroup(_ appGroupId: String) -> VerseData {
         guard let defaults = UserDefaults(suiteName: appGroupId) else {
             return .placeholder
         }
         return VerseData(
+            id: defaults.object(forKey: "id") as? Int ?? placeholder.id,
             arabicText: defaults.string(forKey: "arabicText") ?? placeholder.arabicText,
-            transliteration: defaults.string(forKey: "transliteration") ?? placeholder.transliteration
+            transliteration: defaults.string(forKey: "transliteration") ?? placeholder.transliteration,
+            isRead: defaults.object(forKey: "isRead") as? Bool ?? placeholder.isRead
         )
     }
 }
@@ -49,6 +56,10 @@ struct VerseWidgetEntryView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
+
+            Text("Read: \(verse.isRead)")
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
         .padding()
     }

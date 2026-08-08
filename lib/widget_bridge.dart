@@ -12,6 +12,11 @@ const _iosAppGroupId = 'group.com.example.quranApp';
 /// VerseGlanceWidgetReceiver in AndroidManifest.xml.
 const _androidWidgetReceiver = 'VerseGlanceWidgetReceiver';
 
+/// The `kind` string VerseWidget.swift registers with WidgetKit, required by
+/// home_widget's iOS updateWidget handler to know which widget's timeline to
+/// reload (mirrors _androidWidgetReceiver above, one per platform).
+const _iosWidgetKind = 'VerseWidget';
+
 AppDatabase? _db;
 
 /// Kept open for the lifetime of the app process (rather than closed after
@@ -49,8 +54,9 @@ Future<void> syncHardcodedVerseToWidget() async {
   );
 }
 
-/// Handles a tap on the Android home screen widget: reads the verse id
-/// from [uri]'s query parameters, toggles `isRead` for that verse via
+/// Handles a tap on the home screen widget (Android or iOS): reads the
+/// verse id from [uri]'s query parameters, toggles `isRead` for that verse
+/// via
 /// [AppDatabase.setIsRead], then pushes the new state back to the widget
 /// so it visually reflects the change. No-ops if [uri] carries no
 /// recognizable verse id (e.g. app launched normally, not via the widget).
@@ -85,5 +91,8 @@ Future<void> _pushVerseToWidget(Verse verse) async {
     verse.transliteration,
   );
   await HomeWidget.saveWidgetData<bool>('isRead', verse.isRead);
-  await HomeWidget.updateWidget(androidName: _androidWidgetReceiver);
+  await HomeWidget.updateWidget(
+    androidName: _androidWidgetReceiver,
+    iOSName: _iosWidgetKind,
+  );
 }
