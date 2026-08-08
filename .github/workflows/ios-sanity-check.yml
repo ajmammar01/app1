@@ -144,7 +144,23 @@ jobs:
           xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
           xcrun simctl launch "$UDID" "$BUNDLE_ID"
 
+          # --- TEMPORARY DEBUG (remove once isRead round-trip is confirmed working) ---
+          echo "::group::DEBUG - full App Group suite dump right after launch"
+          xcrun simctl spawn "$UDID" defaults read "$APP_GROUP" 2>&1 || echo "DEBUG: defaults read exited non-zero (domain/key absent?)"
+          echo "::endgroup::"
+
+          echo "::group::DEBUG - defaults domains visible to the simulator's default user context"
+          xcrun simctl spawn "$UDID" defaults domains 2>&1 || echo "DEBUG: defaults domains exited non-zero"
+          echo "::endgroup::"
+          # --- END TEMPORARY DEBUG ---
+
           if ! value=$(wait_for_key isRead false 30); then
+            # --- TEMPORARY DEBUG (remove once isRead round-trip is confirmed working) ---
+            echo "::group::DEBUG - full App Group suite dump after wait_for_key timeout"
+            xcrun simctl spawn "$UDID" defaults read "$APP_GROUP" 2>&1 || echo "DEBUG: defaults read exited non-zero (domain/key absent?)"
+            echo "::endgroup::"
+            # --- END TEMPORARY DEBUG ---
+
             echo "::error::Expected isRead=false in the App Group after a fresh launch, last saw '$value'"
             exit 1
           fi
