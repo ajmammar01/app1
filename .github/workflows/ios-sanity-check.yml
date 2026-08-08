@@ -74,6 +74,28 @@ jobs:
       - name: Build full iOS app (Runner, with VerseWidget embedded)
         run: flutter build ios --no-codesign --simulator
 
+      - name: DEBUG - dump entitlements actually embedded in the built binaries
+        run: |
+          set +e
+          APP_PATH="build/ios/iphonesimulator/Runner.app"
+          echo "::group::DEBUG - codesign -dv (signature summary) for Runner.app"
+          codesign -dv "$APP_PATH" 2>&1
+          echo "::endgroup::"
+
+          echo "::group::DEBUG - codesign entitlements embedded in Runner.app"
+          codesign -d --entitlements :- "$APP_PATH" 2>&1
+          echo "::endgroup::"
+
+          appex_path=$(find "$APP_PATH" -name "*.appex" -maxdepth 3 | head -n1)
+          if [ -n "$appex_path" ]; then
+            echo "::group::DEBUG - codesign entitlements embedded in $appex_path"
+            codesign -d --entitlements :- "$appex_path" 2>&1
+            echo "::endgroup::"
+          else
+            echo "DEBUG: no .appex found under $APP_PATH"
+          fi
+          set -e
+
       - name: Pick an iOS Simulator to run tests on
         id: simulator
         run: |
