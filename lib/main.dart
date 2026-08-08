@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:home_widget/home_widget.dart';
 import 'package:quran_app/widget_bridge.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await syncHardcodedVerseToWidget();
+
+  // Cold start: app was fully closed and launched by the widget tap itself.
+  final launchUri = await HomeWidget.initiallyLaunchedFromHomeWidget();
+  await handleWidgetTap(launchUri);
+
+  // Already running: widget tap reaches the same activity via onNewIntent.
+  HomeWidget.widgetClicked.listen(handleWidgetTap);
+
   runApp(const MyApp());
 }
 
