@@ -111,3 +111,109 @@ jobs:
           name: verse-widget-screenshot
           path: artifacts/verse_widget_snapshot.png
           if-no-files-found: error
+
+      # The steps above only prove the widget can *render* App Group data.
+      # These four exercise the tap-to-toggle-to-refresh loop added in this
+      # stage: they install the real built app, tap the widget's URL via
+      # `simctl openurl` (once cold, once warm), and read the App Group's
+      # shared UserDefaults straight off disk to confirm `isRead` actually
+      # flips both times.
+      - name: Boot Simulator and install Runner app for widget round-trip check
+        env:
+          UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          set -e
+          xcrun simctl bootstatus "$UDID" -b
+
+          APP_PATH="build/ios/iphonesimulator/Runner.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::Expected built app at $APP_PATH but it does not exist"
+            exit 1
+          fi
+          xcrun simctl install "$UDID" "$APP_PATH"
+
+      - name: Verify fresh launch pushes isRead=false to the App Group
+        env:
+          UDID: ${{ steps.simulator.outputs.udid }}
+          BUNDLE_ID: com.example.quranApp
+          APP_GROUP: group.com.example.quranApp
+        run: |
+          set -e
+          source .github/scripts/widget_roundtrip_helpers.sh
+
+          xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+          xcrun simctl launch "$UDID" "$BUNDLE_ID"
+
+          if ! value=$(wait_for_key isRead false 30); then
+            echo "::error::Expected isRead=false in the App Group after a fresh launch, last saw '$value'"
+            exit 1
+          fi
+          echo "Fresh launch OK: isRead=$value"
+
+      - name: Simulate a cold-start widget tap and verify isRead flips to true
+        env:
+          UDID: ${{ steps.simulator.outputs.udid }}
+          BUNDLE_ID: com.example.quranApp
+          APP_GROUP: group.com.example.quranApp
+          TEST_VERSE_ID: 1
+        run: |
+          set -e
+          source .github/scripts/widget_roundtrip_helpers.sh
+
+          # Fully kill the app first so the tap below is a genuine cold
+          # start, not a resume of an already-running process.
+          xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+          sleep 2
+          if [ -n "$(runner_pids)" ]; then
+            echo "::error::Runner is still running after simctl terminate — cannot test the cold-start path"
+            exit 1
+          fi
+
+          xcrun simctl openurl "$UDID" "homeWidget://toggleRead?id=${TEST_VERSE_ID}&homeWidget=true"
+
+          if ! value=$(wait_for_key isRead true 30); then
+            echo "::error::Cold-start widget tap did not flip isRead to true, last saw '$value'"
+            exit 1
+          fi
+          echo "Cold-start tap OK: isRead=$value"
+
+          if [ "$(runner_pid_count)" -ne 1 ]; then
+            echo "::error::Expected the cold-start tap to leave exactly one Runner process running, found $(runner_pid_count)"
+            exit 1
+          fi
+
+      - name: Simulate a warm-start widget tap and verify isRead flips back without duplicating the app
+        env:
+          UDID: ${{ steps.simulator.outputs.udid }}
+          BUNDLE_ID: com.example.quranApp
+          APP_GROUP: group.com.example.quranApp
+          TEST_VERSE_ID: 1
+        run: |
+          set -e
+          source .github/scripts/widget_roundtrip_helpers.sh
+
+          pids_before="$(runner_pids)"
+          if [ "$(runner_pid_count)" -ne 1 ]; then
+            echo "::error::Expected exactly one Runner process running before the warm tap (pids: '$pids_before')"
+            exit 1
+          fi
+          echo "Runner already running with pid $pids_before"
+
+          xcrun simctl openurl "$UDID" "homeWidget://toggleRead?id=${TEST_VERSE_ID}&homeWidget=true"
+
+          if ! value=$(wait_for_key isRead false 30); then
+            echo "::error::Warm-start widget tap did not flip isRead back to false, last saw '$value'"
+            exit 1
+          fi
+          echo "Warm-start tap OK: isRead=$value"
+
+          pids_after="$(runner_pids)"
+          if [ "$(runner_pid_count)" -ne 1 ]; then
+            echo "::error::Expected exactly one Runner process after the warm tap (no crash, no duplicate instance); found pids '$pids_after'"
+            exit 1
+          fi
+          if [ "$pids_after" != "$pids_before" ]; then
+            echo "::error::Runner's process id changed from '$pids_before' to '$pids_after' — the warm tap relaunched the app instead of reusing the running instance"
+            exit 1
+          fi
+          echo "Confirmed a single Runner instance (pid $pids_after) handled the warm tap"
