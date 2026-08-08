@@ -60,6 +60,16 @@ jobs:
             echo "$target OK: $full_path declares $APP_GROUP"
           done
 
+      # Signing settings below are shared by every xcodebuild/flutter build
+      # step in this workflow. CODE_SIGNING_ALLOWED must stay YES: it's what
+      # runs Xcode's CodeSign phase, and that phase is what embeds
+      # CODE_SIGN_ENTITLEMENTS (the App Group) into the binary. Ad-hoc identity
+      # "-" needs no certificate, no provisioning profile and no Developer
+      # Program membership, and the Simulator honours an ad-hoc entitlements
+      # blob directly, so this works on a bare runner with a free Apple ID.
+      # CODE_SIGN_STYLE=Manual keeps xcodebuild from trying to resolve a team
+      # or fetch profiles from Apple, and CODE_SIGNING_REQUIRED=NO keeps
+      # unsignable dependencies from failing the build.
       - name: Build VerseWidget target
         run: |
           xcodebuild \
@@ -68,33 +78,32 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGN_STYLE=Manual \
             build
 
+      # `--no-codesign` is deliberately NOT used here: it makes the flutter
+      # tool append CODE_SIGNING_ALLOWED=NO / CODE_SIGNING_REQUIRED=NO /
+      # CODE_SIGNING_IDENTITY="" to the xcodebuild invocation, which is exactly
+      # what was stripping the App Group entitlement. The tool only performs
+      # development-team lookup for physical-device builds, so a --simulator
+      # build with signing enabled needs no Apple account. The FLUTTER_XCODE_*
+      # env vars are passed straight through to xcodebuild as build settings.
       - name: Build full iOS app (Runner, with VerseWidget embedded)
-        run: flutter build ios --no-codesign --simulator
+        env:
+          FLUTTER_XCODE_CODE_SIGNING_ALLOWED: 'YES'
+          FLUTTER_XCODE_CODE_SIGNING_REQUIRED: 'NO'
+          FLUTTER_XCODE_CODE_SIGN_IDENTITY: '-'
+          FLUTTER_XCODE_CODE_SIGN_STYLE: 'Manual'
+        run: flutter build ios --simulator
 
-      - name: DEBUG - dump entitlements actually embedded in the built binaries
+      - name: Verify the App Group entitlement is embedded in the built binaries
         run: |
-          set +e
-          APP_PATH="build/ios/iphonesimulator/Runner.app"
-          echo "::group::DEBUG - codesign -dv (signature summary) for Runner.app"
-          codesign -dv "$APP_PATH" 2>&1
-          echo "::endgroup::"
-
-          echo "::group::DEBUG - codesign entitlements embedded in Runner.app"
-          codesign -d --entitlements :- "$APP_PATH" 2>&1
-          echo "::endgroup::"
-
-          appex_path=$(find "$APP_PATH" -name "*.appex" -maxdepth 3 | head -n1)
-          if [ -n "$appex_path" ]; then
-            echo "::group::DEBUG - codesign entitlements embedded in $appex_path"
-            codesign -d --entitlements :- "$appex_path" 2>&1
-            echo "::endgroup::"
-          else
-            echo "DEBUG: no .appex found under $APP_PATH"
-          fi
-          set -e
+          bash .github/scripts/verify_entitlements.sh \
+            build/ios/iphonesimulator/Runner.app \
+            group.com.example.quranApp
 
       - name: Pick an iOS Simulator to run tests on
         id: simulator
@@ -115,7 +124,10 @@ jobs:
             -scheme Runner \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
             -only-testing:RunnerTests/VerseWidgetSnapshotTests \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGN_STYLE=Manual
 
       - name: Collect widget screenshot
         run: |
@@ -137,12 +149,13 @@ jobs:
       # The steps above only prove the widget can *render* App Group data.
       # These four exercise the tap-to-toggle-to-refresh loop added in this
       # stage: they install the real built app, tap the widget's URL via
-      # `simctl openurl` (once cold, once warm), and read the App Group's
-      # shared UserDefaults straight off disk to confirm `isRead` actually
-      # flips both times.
+      # `simctl openurl` (once cold, once warm), and query the App Group's
+      # shared UserDefaults via `defaults read` inside the simulator to confirm
+      # `isRead` actually flips both times.
       - name: Boot Simulator and install Runner app for widget round-trip check
         env:
           UDID: ${{ steps.simulator.outputs.udid }}
+          APP_GROUP: group.com.example.quranApp
         run: |
           set -e
           xcrun simctl bootstatus "$UDID" -b
@@ -152,6 +165,13 @@ jobs:
             echo "::error::Expected built app at $APP_PATH but it does not exist"
             exit 1
           fi
+
+          # Re-check entitlements on the exact bundle about to be installed.
+          # The snapshot-test step above also builds the Runner scheme, so this
+          # catches the case where a later build overwrites this bundle with an
+          # unsigned one after the post-build check already passed.
+          bash .github/scripts/verify_entitlements.sh "$APP_PATH" "$APP_GROUP"
+
           xcrun simctl install "$UDID" "$APP_PATH"
 
       - name: Verify fresh launch pushes isRead=false to the App Group
