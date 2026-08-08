@@ -76,6 +76,19 @@ class $VersesTable extends Verses with TableInfo<$VersesTable, Verse> {
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _isReadMeta = const VerificationMeta('isRead');
+  @override
+  late final GeneratedColumn<bool> isRead = GeneratedColumn<bool>(
+    'is_read',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_read" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -84,6 +97,7 @@ class $VersesTable extends Verses with TableInfo<$VersesTable, Verse> {
     ayahEnd,
     arabicText,
     transliteration,
+    isRead,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -146,6 +160,12 @@ class $VersesTable extends Verses with TableInfo<$VersesTable, Verse> {
     } else if (isInserting) {
       context.missing(_transliterationMeta);
     }
+    if (data.containsKey('is_read')) {
+      context.handle(
+        _isReadMeta,
+        isRead.isAcceptableOrUnknown(data['is_read']!, _isReadMeta),
+      );
+    }
     return context;
   }
 
@@ -179,6 +199,10 @@ class $VersesTable extends Verses with TableInfo<$VersesTable, Verse> {
         DriftSqlType.string,
         data['${effectivePrefix}transliteration'],
       )!,
+      isRead: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_read'],
+      )!,
     );
   }
 
@@ -195,6 +219,7 @@ class Verse extends DataClass implements Insertable<Verse> {
   final int ayahEnd;
   final String arabicText;
   final String transliteration;
+  final bool isRead;
   const Verse({
     required this.id,
     required this.surahNumber,
@@ -202,6 +227,7 @@ class Verse extends DataClass implements Insertable<Verse> {
     required this.ayahEnd,
     required this.arabicText,
     required this.transliteration,
+    required this.isRead,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -212,6 +238,7 @@ class Verse extends DataClass implements Insertable<Verse> {
     map['ayah_end'] = Variable<int>(ayahEnd);
     map['arabic_text'] = Variable<String>(arabicText);
     map['transliteration'] = Variable<String>(transliteration);
+    map['is_read'] = Variable<bool>(isRead);
     return map;
   }
 
@@ -223,6 +250,7 @@ class Verse extends DataClass implements Insertable<Verse> {
       ayahEnd: Value(ayahEnd),
       arabicText: Value(arabicText),
       transliteration: Value(transliteration),
+      isRead: Value(isRead),
     );
   }
 
@@ -238,6 +266,7 @@ class Verse extends DataClass implements Insertable<Verse> {
       ayahEnd: serializer.fromJson<int>(json['ayahEnd']),
       arabicText: serializer.fromJson<String>(json['arabicText']),
       transliteration: serializer.fromJson<String>(json['transliteration']),
+      isRead: serializer.fromJson<bool>(json['isRead']),
     );
   }
   @override
@@ -250,6 +279,7 @@ class Verse extends DataClass implements Insertable<Verse> {
       'ayahEnd': serializer.toJson<int>(ayahEnd),
       'arabicText': serializer.toJson<String>(arabicText),
       'transliteration': serializer.toJson<String>(transliteration),
+      'isRead': serializer.toJson<bool>(isRead),
     };
   }
 
@@ -260,6 +290,7 @@ class Verse extends DataClass implements Insertable<Verse> {
     int? ayahEnd,
     String? arabicText,
     String? transliteration,
+    bool? isRead,
   }) => Verse(
     id: id ?? this.id,
     surahNumber: surahNumber ?? this.surahNumber,
@@ -267,6 +298,7 @@ class Verse extends DataClass implements Insertable<Verse> {
     ayahEnd: ayahEnd ?? this.ayahEnd,
     arabicText: arabicText ?? this.arabicText,
     transliteration: transliteration ?? this.transliteration,
+    isRead: isRead ?? this.isRead,
   );
   Verse copyWithCompanion(VersesCompanion data) {
     return Verse(
@@ -282,6 +314,7 @@ class Verse extends DataClass implements Insertable<Verse> {
       transliteration: data.transliteration.present
           ? data.transliteration.value
           : this.transliteration,
+      isRead: data.isRead.present ? data.isRead.value : this.isRead,
     );
   }
 
@@ -293,7 +326,8 @@ class Verse extends DataClass implements Insertable<Verse> {
           ..write('ayahStart: $ayahStart, ')
           ..write('ayahEnd: $ayahEnd, ')
           ..write('arabicText: $arabicText, ')
-          ..write('transliteration: $transliteration')
+          ..write('transliteration: $transliteration, ')
+          ..write('isRead: $isRead')
           ..write(')'))
         .toString();
   }
@@ -306,6 +340,7 @@ class Verse extends DataClass implements Insertable<Verse> {
     ayahEnd,
     arabicText,
     transliteration,
+    isRead,
   );
   @override
   bool operator ==(Object other) =>
@@ -316,7 +351,8 @@ class Verse extends DataClass implements Insertable<Verse> {
           other.ayahStart == this.ayahStart &&
           other.ayahEnd == this.ayahEnd &&
           other.arabicText == this.arabicText &&
-          other.transliteration == this.transliteration);
+          other.transliteration == this.transliteration &&
+          other.isRead == this.isRead);
 }
 
 class VersesCompanion extends UpdateCompanion<Verse> {
@@ -326,6 +362,7 @@ class VersesCompanion extends UpdateCompanion<Verse> {
   final Value<int> ayahEnd;
   final Value<String> arabicText;
   final Value<String> transliteration;
+  final Value<bool> isRead;
   const VersesCompanion({
     this.id = const Value.absent(),
     this.surahNumber = const Value.absent(),
@@ -333,6 +370,7 @@ class VersesCompanion extends UpdateCompanion<Verse> {
     this.ayahEnd = const Value.absent(),
     this.arabicText = const Value.absent(),
     this.transliteration = const Value.absent(),
+    this.isRead = const Value.absent(),
   });
   VersesCompanion.insert({
     this.id = const Value.absent(),
@@ -341,6 +379,7 @@ class VersesCompanion extends UpdateCompanion<Verse> {
     required int ayahEnd,
     required String arabicText,
     required String transliteration,
+    this.isRead = const Value.absent(),
   }) : surahNumber = Value(surahNumber),
        ayahStart = Value(ayahStart),
        ayahEnd = Value(ayahEnd),
@@ -353,6 +392,7 @@ class VersesCompanion extends UpdateCompanion<Verse> {
     Expression<int>? ayahEnd,
     Expression<String>? arabicText,
     Expression<String>? transliteration,
+    Expression<bool>? isRead,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -361,6 +401,7 @@ class VersesCompanion extends UpdateCompanion<Verse> {
       if (ayahEnd != null) 'ayah_end': ayahEnd,
       if (arabicText != null) 'arabic_text': arabicText,
       if (transliteration != null) 'transliteration': transliteration,
+      if (isRead != null) 'is_read': isRead,
     });
   }
 
@@ -371,6 +412,7 @@ class VersesCompanion extends UpdateCompanion<Verse> {
     Value<int>? ayahEnd,
     Value<String>? arabicText,
     Value<String>? transliteration,
+    Value<bool>? isRead,
   }) {
     return VersesCompanion(
       id: id ?? this.id,
@@ -379,6 +421,7 @@ class VersesCompanion extends UpdateCompanion<Verse> {
       ayahEnd: ayahEnd ?? this.ayahEnd,
       arabicText: arabicText ?? this.arabicText,
       transliteration: transliteration ?? this.transliteration,
+      isRead: isRead ?? this.isRead,
     );
   }
 
@@ -403,6 +446,9 @@ class VersesCompanion extends UpdateCompanion<Verse> {
     if (transliteration.present) {
       map['transliteration'] = Variable<String>(transliteration.value);
     }
+    if (isRead.present) {
+      map['is_read'] = Variable<bool>(isRead.value);
+    }
     return map;
   }
 
@@ -414,7 +460,8 @@ class VersesCompanion extends UpdateCompanion<Verse> {
           ..write('ayahStart: $ayahStart, ')
           ..write('ayahEnd: $ayahEnd, ')
           ..write('arabicText: $arabicText, ')
-          ..write('transliteration: $transliteration')
+          ..write('transliteration: $transliteration, ')
+          ..write('isRead: $isRead')
           ..write(')'))
         .toString();
   }
@@ -439,6 +486,7 @@ typedef $$VersesTableCreateCompanionBuilder =
       required int ayahEnd,
       required String arabicText,
       required String transliteration,
+      Value<bool> isRead,
     });
 typedef $$VersesTableUpdateCompanionBuilder =
     VersesCompanion Function({
@@ -448,6 +496,7 @@ typedef $$VersesTableUpdateCompanionBuilder =
       Value<int> ayahEnd,
       Value<String> arabicText,
       Value<String> transliteration,
+      Value<bool> isRead,
     });
 
 class $$VersesTableFilterComposer
@@ -486,6 +535,11 @@ class $$VersesTableFilterComposer
 
   ColumnFilters<String> get transliteration => $composableBuilder(
     column: $table.transliteration,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isRead => $composableBuilder(
+    column: $table.isRead,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -528,6 +582,11 @@ class $$VersesTableOrderingComposer
     column: $table.transliteration,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get isRead => $composableBuilder(
+    column: $table.isRead,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$VersesTableAnnotationComposer
@@ -562,6 +621,9 @@ class $$VersesTableAnnotationComposer
     column: $table.transliteration,
     builder: (column) => column,
   );
+
+  GeneratedColumn<bool> get isRead =>
+      $composableBuilder(column: $table.isRead, builder: (column) => column);
 }
 
 class $$VersesTableTableManager
@@ -598,6 +660,7 @@ class $$VersesTableTableManager
                 Value<int> ayahEnd = const Value.absent(),
                 Value<String> arabicText = const Value.absent(),
                 Value<String> transliteration = const Value.absent(),
+                Value<bool> isRead = const Value.absent(),
               }) => VersesCompanion(
                 id: id,
                 surahNumber: surahNumber,
@@ -605,6 +668,7 @@ class $$VersesTableTableManager
                 ayahEnd: ayahEnd,
                 arabicText: arabicText,
                 transliteration: transliteration,
+                isRead: isRead,
               ),
           createCompanionCallback:
               ({
@@ -614,6 +678,7 @@ class $$VersesTableTableManager
                 required int ayahEnd,
                 required String arabicText,
                 required String transliteration,
+                Value<bool> isRead = const Value.absent(),
               }) => VersesCompanion.insert(
                 id: id,
                 surahNumber: surahNumber,
@@ -621,6 +686,7 @@ class $$VersesTableTableManager
                 ayahEnd: ayahEnd,
                 arabicText: arabicText,
                 transliteration: transliteration,
+                isRead: isRead,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
